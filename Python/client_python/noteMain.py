@@ -14,8 +14,8 @@ formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-# µ±Ç°Ê±¼ä - (ÆğÊ¼Ê±¼ä + ½»Ò×ÌìÊı * (½»Ò×ÈÕ³ÖĞøÌìÊı - 1)) = ¿ªÊ¼½»Ò×Ê±¼ä´Á£¬¿ªÊ¼½»Ò×Ê±¼ä´Á * Ê±¼ä±ÈÂÊ = Æ½Ì¨¿ªÊ¼½»Ò×Ê±¼ä¡£
-# ÆäÖĞ Ê±¼ä±ÈÂÊ time_ratio = 24h/25min¡£ ËùÒÔ 25·ÖÖÓ ¾Í±íÊ¾ÁËÒ»Ìì 24Ğ¡Ê± µÄ½»Ò×ÈÕ
+# å½“å‰æ—¶é—´ - (èµ·å§‹æ—¶é—´ + äº¤æ˜“å¤©æ•° * (äº¤æ˜“æ—¥æŒç»­å¤©æ•° - 1)) = å¼€å§‹äº¤æ˜“æ—¶é—´æˆ³ï¼Œå¼€å§‹äº¤æ˜“æ—¶é—´æˆ³ * æ—¶é—´æ¯”ç‡ = å¹³å°å¼€å§‹äº¤æ˜“æ—¶é—´ã€‚
+# å…¶ä¸­ æ—¶é—´æ¯”ç‡ time_ratio = 24h/25minã€‚ æ‰€ä»¥ 25åˆ†é’Ÿ å°±è¡¨ç¤ºäº†ä¸€å¤© 24å°æ—¶ çš„äº¤æ˜“æ—¥
 def ConvertToSimTime_us(start_time, time_ratio, day, running_time):
     return (time.time() - start_time - (day - 1) * running_time) * time_ratio
 
@@ -37,60 +37,61 @@ class BotsClass:
         pass
 
 class BotsDemoClass(BotsClass):
-    # ³õÊ¼»¯ ÕËºÅ¡¢ÃÜÂë
+    # åˆå§‹åŒ– è´¦å·ã€å¯†ç 
     def __init__(self, username, password):
         super().__init__(username, password)
-        self.api = InterfaceClass("https://trading.competition.ubiquant.com")
-    # ·¢ËÍÕËºÅÃÜÂë£¬µÇÂ¼Æ½Ì¨
+        self.api = InterfaceClass("https://trading.competition.ubiquant.com")  # æ¥å£åˆå§‹åŒ–ï¼Œè·å–å¹³å°åŸŸå
+    # å‘é€è´¦å·å¯†ç ï¼Œç™»å½•å¹³å°
     def login(self):
-        response = self.api.sendLogin(self.username, self.password)
+        response = self.api.sendLogin(self.username, self.password)  # å‘é€ç™»å½•è¯·æ±‚
         if response["status"] == "Success":
             self.token_ub = response["token_ub"]
             logger.info("Login Success: {}".format(self.token_ub))
         else:
             logger.info("Login Error: ", response["status"])
-    # »ñÈ¡¹ÉÆ±
+    # è·å–è‚¡ç¥¨
     def GetInstruments(self):
         response = self.api.sendGetInstrumentInfo(self.token_ub)
         if response["status"] == "Success":
-            self.instruments = []
+            self.instruments = []  # è®°å½•æ‰€æœ‰è‚¡ç¥¨åç§°
             for instrument in response["instruments"]:
                 self.instruments.append(instrument["instrument_name"])
-            logger.info("Get Instruments: {}".format(self.instruments))
-	# ³õÊ¼»¯£º»ñÈ¡ ½»Ò×ÈÕĞÅÏ¢ ºÍ ¹ÉÆ±ĞÅÏ¢
+            logger.info("Get Instruments: {}".format(self.instruments))  # æ‰“å°ä¸€å…±è·å–äº†å“ªäº›è‚¡ç¥¨
+    # åˆå§‹åŒ–ï¼šè·å– äº¤æ˜“æ—¥ä¿¡æ¯ å’Œ è‚¡ç¥¨ä¿¡æ¯
     def init(self):
         response = self.api.sendGetGameInfo(self.token_ub)
+        # è·å–ä¸‹ä¸€æ¬¡ äº¤æ˜“å¼€å§‹æ—¶é—´ã€äº¤æ˜“æŒç»­æ—¥æœŸã€äº¤æ˜“æ—¥æŒç»­å¤©æ•°(æ¯å¤©)ã€äº¤æ˜“æ—¶é—´æ¯”ç‡(çœŸå®ä¸–ç•Œæ—¶é—´æ¢ç®—)
         if response["status"] == "Success":
             self.start_time = response["next_game_start_time"]
             self.running_days = response["next_game_running_days"]
             self.running_time = response["next_game_running_time"]
             self.time_ratio = response["next_game_time_ratio"]
-        self.GetInstruments()
-        self.day = 0
-    # Ã¿¸ö½»Ò×ÈÕ¿ªÊ¼Ê±£¬½»Ò×²ßÂÔµÄ³õÊ¼»¯
+        self.GetInstruments()  # è·å–æ‰€æœ‰è‚¡ç¥¨ä¿¡æ¯
+        self.day = 0  # åˆå§‹åŒ–äº¤æ˜“æ—¥
+    # æ¯ä¸ªäº¤æ˜“æ—¥å¼€å§‹æ—¶ï¼Œäº¤æ˜“ç­–ç•¥çš„åˆå§‹åŒ–
     def bod(self):
         pass
-    # ½»Ò×²ßÂÔµÄÊµÏÖ£¬¿É½øĞĞ£º²éÑ¯¡¢´¦ÀíĞĞÇé¡¢ÏÂµ¥¡¢³·µ¥µÈ²Ù×÷ (demoÊÇËæ»úÂòÈëÄ³Ö§¹ÉÆ±µÄÒ»ÊÖ)
+    # äº¤æ˜“ç­–ç•¥çš„å®ç°ï¼Œå¯è¿›è¡Œï¼šæŸ¥è¯¢ã€å¤„ç†è¡Œæƒ…ã€ä¸‹å•ã€æ’¤å•ç­‰æ“ä½œ (demoæ˜¯éšæœºä¹°å…¥æŸæ”¯è‚¡ç¥¨çš„ä¸€æ‰‹)
     def work(self): 
-        stockID = random.randint(0, len(self.instruments) - 1)
-        LOB = self.api.sendGetLimitOrderBook(self.token_ub, self.instruments[stockID])
+        stockID = random.randint(0, len(self.instruments) - 1)  # ä»è‚¡ç¥¨æ•°ç»„ä¸­ï¼Œéšæœºé€‰å–ä¸€æ”¯è‚¡ç¥¨
+        LOB = self.api.sendGetLimitOrderBook(self.token_ub, self.instruments[stockID])  # è·å–â€œé™ä»·è®¢å•è–„LOBâ€å“åº”
         if LOB["status"] == "Success":
             askprice_1 = float(LOB["lob"]["askprice"][0])
-            t = ConvertToSimTime_us(self.start_time, self.time_ratio, self.day, self.running_time)
+            t = ConvertToSimTime_us(self.start_time, self.time_ratio, self.day, self.running_time)  # æ¢ç®—å‡ºå¹³å°å¼€å§‹äº¤æ˜“æ—¶é—´
             response = self.api.sendOrder(self.token_ub, self.instruments[stockID], t, "buy", askprice_1, 100)
-    # Ã¿¸ö½»Ò×ÈÕ½áÊøÊ±»áµ÷ÓÃ¸Ãº¯Êı£¬¿ÉÓÃÓÚÃ¿Ìì½»Ò×½áÊøÊ±Ö´ĞĞÒ»Ğ©²Ù×÷
+    # æ¯ä¸ªäº¤æ˜“æ—¥ç»“æŸæ—¶ä¼šè°ƒç”¨è¯¥å‡½æ•°ï¼Œå¯ç”¨äºæ¯å¤©äº¤æ˜“ç»“æŸæ—¶æ‰§è¡Œä¸€äº›æ“ä½œ
     def eod(self):
         pass
-    # ÔÚËùÓĞ½»Ò×ÈÕ½áÊøºó»áµ÷ÓÃ£¬¿ÉÓÃÓÚÈüºó´¦ÀíÒ»Ğ©¹¤×÷ºÍ·ÖÎö
+    # åœ¨æ‰€æœ‰äº¤æ˜“æ—¥ç»“æŸåä¼šè°ƒç”¨ï¼Œå¯ç”¨äºèµ›åå¤„ç†ä¸€äº›å·¥ä½œå’Œåˆ†æ
     def final(self):
         pass
 
 class InterfaceClass:
-    # »ñÈ¡µÇÂ¼ÓòÃû
+    # è·å–ç™»å½•åŸŸå
     def __init__(self, domain_name):
         self.domain_name = domain_name
         self.session = requests.Session()
-    # ·¢ËÍµÇÂ¼ÇëÇó
+    # å‘é€ç™»å½•è¯·æ±‚
     def sendLogin(self, username, password):
         url = self.domain_name + "/api/Login"
         data = {
@@ -100,11 +101,11 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # »ñÈ¡±ÈÈüĞÅÏ¢µÄ url
+    # è·å–æ¯”èµ›ä¿¡æ¯çš„ url
     def sendGetGameInfo(self, token_ub):
         url = self.domain_name + "/api/TradeAPI/GetGAmeInfo"
 
-    # ·¢ËÍ²Ù×÷ÇëÇó£ºÔÚ localtimeÊ±¼ä ¶Ô volumeÊıÁ¿ µÄ ¹ÉÆ±instrument£¬ÒÔ price µÄ¼Û¸ñ£¬Ö´ĞĞ direction²Ù×÷(ÈçÂò¡¢Âô)
+    # å‘é€æ“ä½œè¯·æ±‚ï¼šåœ¨ localtimeæ—¶é—´ å¯¹ volumeæ•°é‡ çš„ è‚¡ç¥¨instrumentï¼Œä»¥ price çš„ä»·æ ¼ï¼Œæ‰§è¡Œ directionæ“ä½œ(å¦‚ä¹°ã€å–)
     def sendOrder(self, token_ub, instrument, localtime, direction, price, volume):
         logger.debug("Order: Instrument: {}, Direction:{}, Price: {}, Volume:{}".format(instrument, direction, price, volume))
         url = self.domain_name + "/api/TradeAPI/Order"
@@ -120,7 +121,7 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # ·¢ËÍ¡°³·µ¥¡±ÇëÇó
+    # å‘é€â€œæ’¤å•â€è¯·æ±‚
     def sendCancel(self, token_ub, instrument, localtime, index):
         logger.debug("Cancel: Instrument: {}, index:{}".format(instrument, index))
         url = self.domain_name + "/api/TradeAPI/Cancel"
@@ -134,7 +135,7 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # ·¢ËÍ¡°»ñÈ¡ÏŞ¼Û¶©µ¥±¡(LOB)¡±ÇëÇó
+    # å‘é€â€œè·å–é™ä»·è®¢å•è–„(LOB)â€è¯·æ±‚
     def sendGetLimitOrderBook(self, token_ub, instrument):
         logger.debug("GetLimitOrderBook: Instrument: {}".format(instrument))
         url = self.domain_name + "/api/TradeAPI/GetLimitOrderBook"
@@ -142,7 +143,7 @@ class InterfaceClass:
             "token_ub": token_ub,
             "instrument": instrument
         }
-        response = self.session.post(url, data=json.dumps(data)).json()
+        response = self.session.post(url, data=json.dumps(data)).json()  # è§£ææˆå“åº”
         return response
 
     def sendGetUserInfo(self, token_ub):
@@ -163,7 +164,7 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # ·¢ËÍ »ñÈ¡¹ÉÆ±ĞÅÏ¢ÇëÇó
+    # å‘é€ è·å–è‚¡ç¥¨ä¿¡æ¯è¯·æ±‚
     def sendGetInstrumentInfo(self, token_ub):
         logger.debug("GetInstrumentInfo: ")
         url = self.domain_name + "/api/TradeAPI/GetInstrumentInfo"
@@ -173,7 +174,7 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # ·¢ËÍ ¡°»ñÈ¡³É½»ĞÅÏ¢¡± ÇëÇó
+    # å‘é€ â€œè·å–æˆäº¤ä¿¡æ¯â€ è¯·æ±‚
     def sendGetTrade(self, token_ub, instrument):
         logger.debug("GetTrade: Instrment: {}".format(instrument))
         url = self.domain_name + "/api/TradeAPI/GetTrade"
@@ -184,7 +185,7 @@ class InterfaceClass:
         response = self.session.post(url, data=json.dumps(data)).json()
         return response
 
-    # ·¢ËÍ ¡°»ñÈ¡µ±Ç°Íâ¹Òµ¥¡± ÇëÇó
+    # å‘é€ â€œè·å–å½“å‰å¤–æŒ‚å•â€ è¯·æ±‚
     def sendGetActiveOrder(self, token_ub):
         logger.debug("GetActiveOrder: ")
         url = self.domain_name + "/api/TradeAPI/GetActiveOrder"
@@ -196,35 +197,38 @@ class InterfaceClass:
 
 
 
-# Ä¬ÈÏ Ê±¼ä±ÈÂÊÎª: 24h/25min
-bot = BotsDemoClass("UBIQ_TEAM106", "f7ugVlef0")  # ³õÊ¼»¯£ºÕËºÅ¡¢ÃÜÂë
-bot.login()  # µÇÂ¼
-bot.init()  # ³õÊ¼»¯£º»ñÈ¡ ½»Ò×ÈÕĞÅÏ¢ ºÍ ¹ÉÆ±ĞÅÏ¢
-SimTimeLen = 14400  # Ò»¸ö½»Ò×ÈÕ¹²½»Ò×4Ğ¡Ê±£¬¶ÔÓ¦ 4*60*60 = 14400s¡£¼´Ò»Ìì 24h ÓĞĞ§½»Ò×Ê±¼äÎª 4h£¬¼´½»Ò×Ëù(9:30-11:30,13:00-15:00)
-endWaitTime = 300  # ÏµÍ³½áËãÊ±¼äÎª 5·ÖÖÓ£¬¶ÔÓ¦ 5*60 = 300s¡£ÊÇÏµÍ³½áËãÊ±¼ä£¬²»ÊÇ½»Ò×ÈÕµÄ 24h Ê±¼ä
-# Ëã³öÒª½øĞĞÖÁÉÙ 14400 ´Î½»Ò×£¬½»Ò×ÌìÊıÓ¦ĞèÒª day Ìì
+# é»˜è®¤ æ—¶é—´æ¯”ç‡ä¸º: 24h/25min
+bot = BotsDemoClass("UBIQ_TEAM106", "f7ugVlef0")  # åˆå§‹åŒ–ï¼šè´¦å·ã€å¯†ç 
+bot.login()  # ç™»å½•
+bot.init()  # åˆå§‹åŒ–ï¼šè·å– äº¤æ˜“æ—¥ä¿¡æ¯ å’Œ è‚¡ç¥¨ä¿¡æ¯
+SimTimeLen = 14400  # ä¸€ä¸ªäº¤æ˜“æ—¥å…±äº¤æ˜“4å°æ—¶ï¼Œå¯¹åº” 4*60*60 = 14400sã€‚å³ä¸€å¤© 24h æœ‰æ•ˆäº¤æ˜“æ—¶é—´ä¸º 4hï¼Œå³äº¤æ˜“æ‰€(9:30-11:30,13:00-15:00)
+endWaitTime = 300  # ç³»ç»Ÿç»“ç®—æ—¶é—´ä¸º 5åˆ†é’Ÿï¼Œå¯¹åº” 5*60 = 300sã€‚æ˜¯ç³»ç»Ÿç»“ç®—æ—¶é—´ï¼Œä¸æ˜¯äº¤æ˜“æ—¥çš„ 24h æ—¶é—´
+# ç®—å‡ºè¦è¿›è¡Œè‡³å°‘ 14400 æ¬¡äº¤æ˜“ï¼Œäº¤æ˜“å¤©æ•°åº”éœ€è¦ day å¤©
 while True:
     if ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time) < SimTimeLen:
         break
     else:
         bot.day += 1
 
+# è‹¥ å½“å‰äº¤æ˜“å¤©æ•° å°äº äº¤æ˜“æ—¥æŒç»­å¤©æ•°ï¼Œåˆ™ç»§ç»­äº¤æ˜“
 while bot.day <= bot.running_days:
-    # Áô³ö 90s Ê±¼ä£¬ÓÃÓÚ ½»Ò×ÈÕ¿ªÊ¼ºó ÇÒ ½»Ò×¿ªÆôÇ°£¬½»Ò×²ßÂÔ¿ÉÄÜÒªÓÃµÄ²ÎÊıµÄ³õÊ¼»¯
+    # ç•™å‡º 90s æ—¶é—´ï¼Œç”¨äº äº¤æ˜“æ—¥å¼€å§‹å ä¸” äº¤æ˜“å¼€å¯å‰ï¼Œäº¤æ˜“ç­–ç•¥å¯èƒ½è¦ç”¨çš„å‚æ•°çš„åˆå§‹åŒ–
     while True:
         if ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time) > -900:
             break
-    bot.bod()  # Ã¿¸ö½»Ò×ÈÕ¿ªÊ¼Ê±£¬½»Ò×²ßÂÔµÄ³õÊ¼»¯
-    now = round(ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time))
+    bot.bod()  # æ¯ä¸ªäº¤æ˜“æ—¥å¼€å§‹æ—¶ï¼Œäº¤æ˜“ç­–ç•¥çš„åˆå§‹åŒ–
+    now = round(ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time))  # å››èˆäº”å…¥å¾— å½“å‰æ—¶é—´æˆ³
+    # ä» å½“å‰æ—¶é—´æˆ³ åˆ° (äº¤æ˜“æ—¥+ç»“ç®—æ—¶é—´) ç»“æŸ
     for s in range(now, SimTimeLen + endWaitTime):
-        # 1sÄÚÊ±¼ä£¬ÓÃÓÚ½øĞĞ ½»Ò×²Ù×÷Ç° µÄ²ÎÊı³õÊ¼»¯
+        # 1så†…æ—¶é—´ï¼Œç”¨äºè¿›è¡Œ äº¤æ˜“æ“ä½œå‰ çš„å‚æ•°åˆå§‹åŒ–
         while True:
             if ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time) >= s:
                 break
         t = ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time)
         logger.info("Work Time: {}".format(t))
+        # å‰©ä½™å¯äº¤æ˜“æ—¶é—´å¤§äº30ï¼Œåˆ™å¼€å§‹äº¤æ˜“æ“ä½œ
         if t < SimTimeLen - 30:
-            bot.work()  # Ö´ĞĞ½»Ò×²ßÂÔ
-    bot.eod()  # ÓÃÓÚÃ¿Ìì½»Ò×½áÊøÊ±Ö´ĞĞÒ»Ğ©²Ù×÷
+            bot.work()  # æ‰§è¡Œäº¤æ˜“ç­–ç•¥
+    bot.eod()  # ç”¨äºæ¯å¤©äº¤æ˜“ç»“æŸæ—¶æ‰§è¡Œä¸€äº›æ“ä½œ
     bot.day += 1
-bot.final()  # ÓÃÓÚÈüºó´¦ÀíÒ»Ğ©¹¤×÷ºÍ·ÖÎö
+bot.final()  # ç”¨äºèµ›åå¤„ç†ä¸€äº›å·¥ä½œå’Œåˆ†æ
