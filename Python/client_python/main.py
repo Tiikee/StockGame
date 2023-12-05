@@ -86,12 +86,22 @@ class BotsDemoClass(BotsClass):
     def work(self):
         # 随机买
         buyID = random.randint(0, len(self.instruments) - 1)
-        LOB = self.api.sendGetLimitOrderBook(self.token_ub, self.instruments[buyID])
-        if LOB["status"] == "Success":
+        buyLOB = self.api.sendGetLimitOrderBook(self.token_ub, self.instruments[buyID])
+        if buyLOB["status"] == "Success":
             # 以 AskPrice1 的卖家报价买入
-            askprice_1 = float(LOB["lob"]["askprice"][0])
+            askprice_1 = float(buyLOB["lob"]["askprice"][0])
             t = ConvertToSimTime_us(self.start_time, self.time_ratio, self.day, self.running_time)
             response = self.api.sendOrder(self.token_ub, self.instruments[buyID], t, "buy", askprice_1, 100)
+        # 获得当前手上持股数量
+        # 随机卖
+        sellID = random.randint(0, len(self.instruments) - 1)
+        sellLOB = self.api.sendGetLimitOrderBook(self.token_ub, self.instruments[sellID])
+        if sellLOB["status"] == "Success":
+            # 以 BidPrice1 的买家报价卖出
+            bidprice_1 = float(sellLOB["lob"]["bidprice"][0])
+            # bidvolume_1 = sellLOB["lob"]["bidvolume"][0]
+            t = ConvertToSimTime_us(self.start_time, self.time_ratio, self.day, self.running_time)
+            response = self.api.sendOrder(self.token_ub, self.instruments[sellID], t, "sell", bidprice_1, 1000)
 
     # 每个交易日结束时会调用该函数，可用于每天交易结束时执行一些操作
     def eod(self):
