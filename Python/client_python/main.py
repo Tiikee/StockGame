@@ -51,7 +51,7 @@ class BotsClass:
         pass
     def init(self):
         pass
-    def buy(self, instrument: str):
+    def buy(self, instrument: str, totle: int):
         pass
     def sell(self, instrument: str, totle: int):
         pass
@@ -92,19 +92,15 @@ class BotsDemoClass(BotsClass):
 
     # 初始化所有股票初始价格、当前我对所有股票的持仓
     def stocksInit(self):
-        self.holdEmpty = True       # 当前是否手上没有股票
-        self.instrumentHash = {}    # hash映射 {“股票名称“: 股票下标}
-        self.stockUp = [0] * 29     # 所有股票连涨天数
-        self.stockDown = [0] * 29   # 所有股票的连跌天数
-        self.stocksIncome = {}      # 所有股票当前盈利状况。map[股票名称， 盈利(正或负)]。没有购买的盈利为0
-        self.stocksBuy = {}         # 我当前手上持股情况。map[股票名称, [计划购入总价，股票总数]]
-        self.stocksLOB = {}         # 所有股票的历史LOB。map[股票名称， map[LOB参数, [历史数据]]]。忽略localtime字段
+        self.instrumentHash = {}        # hash映射 {“股票名称“: 股票下标}
+        self.stocksPriceUpDown = {}     # 所有股票历史差价列表。[股票名称，[历史涨跌差价情况]] 29个key，对应29股票
+        self.stocksLOB = {}             # 所有股票的历史LOB。map[股票名称， map[LOB参数, [历史数据]]]。忽略localtime字段
         for i in range(self.stockNumber):
             instrument = self.instruments[i]
             self.instrumentHash[instrument] = i
-            self.stocksIncome[instrument] = 0
-            self.stocksBuy[instrument] = [0, 0]
+            self.stocksPriceUpDown[instrument] = []
             self.stocksLOB[instrument] = {
+                "localtime": [],
                 "limit_up_price": [],
                 "limit_down_price": [],
                 "bidprice": [],
@@ -115,8 +111,9 @@ class BotsDemoClass(BotsClass):
                 "trade_volume": [],
                 "trade_value": []
             }
-        logger.info("### StocksInit, \n stocksIncome: {} \n stocksBuy: {} \n stocksLOB: {}"
-                    .format(self.stocksIncome, self.stocksBuy, self.stocksLOB))
+        # stocksLOB 或许能写成指定大小的数据，这样就得用下标idx 访问最新元素了：stocksLOB[name][key] = [] * 14400。 O(1)时间写读
+        logger.info("### StocksInit, \n stocksLOB: {}"
+                    .format(self.stocksLOB))
 
 
     # 初始化：获取 交易日信息 和 股票信息
@@ -135,28 +132,34 @@ class BotsDemoClass(BotsClass):
         self.totalTradeScore = {}       # 每个交易日结束后的总体收益
         self.day = 0
 
-    # 获得上一次所有股票的买卖情况、获得所有股票本轮的LOB价格行情
+    # 获得上一次所有股票的买卖情况、获得所有股票本轮的LOB价格行情、所有股票和上次相比的差价
     def getAllStocksInfo(self):
-        preTradeList = []  # 记录上一次的股票成交列表
+        preTradeList = []  # 记录上一次所有股票的成交列表(没交易的就是空)
         # 遍历所有股票，并存储此时LOB。同时记录此时所有股票的涨跌行情
         for instrument in self.instruments:
             lobResponse = self.api.sendGetLimitOrderBook(self.token_ub, instrument)
+            # 成功获取LOB
             if lobResponse["status"] == "Success":
+                # 比较是否上涨
+                lastPrice = lobResponse["lob"]["last_price"]
+                # 则计算出与上次的差价，并压入历史差价中(仅当 LOB 历史数组非空时)
+                if self.stocksLOB[instrument]["last_price"]:
+                    self.stocksPriceUpDown[instrument].append(lastPrice - self.stocksLOB[instrument]["last_price"][-1])
+
+                # 存储本轮LOB
                 for key, value in lobResponse["lob"].items():
-                    if key == 'localtime': continue  # 跳过 localtime 字段
                     self.stocksLOB[instrument][key].append(value)
-            else:
-                return  # 此时还没开市，因此无法获取LOB，直接退出对所有股票的初始化
             # logger.debug("### instrument: {}, lob: {}".format(instrument, lobResponse["lob"]))  # 打印该股票LOB
             # 获取该股票的成交列表
-            getTrade = self.api.sendGetTrade(self.token_ub, instrument)
-            preTradeList.append(getTrade["trade_list"])
-
-        self.tradeList.append(preTradeList)                             # 存储上一次股票成交列表
+            tradeResponse = self.api.sendGetTrade(self.token_ub, instrument)
+            if tradeResponse["status"] != "Success":
+                return  # 此时无法获取上次成交列表，直接退出
+            preTradeList.append(tradeResponse["trade_list"])
+        self.tradeList.append(preTradeList)                             # 存储上一次所有股票的成交列表
         logger.info("### Get preTradeList: {}".format(preTradeList))    # 打印上一次的股票成交列表
 
     # 进行买入
-    def buy(self, instrument: str):
+    def buy(self, instrument: str, totle: int):
         # 随机买。如果股票剩余仓不足100，就不买了。因为只会按错单来算。 todo : 如果外挂单(即未交易的単)超过10张，则删除低价外挂单
         buyLOB = self.api.sendGetLimitOrderBook(self.token_ub, instrument)
         if buyLOB["status"] == "Success":
@@ -171,13 +174,35 @@ class BotsDemoClass(BotsClass):
                     logger.debug("# Askvolume not enough! bidID: {}, askvolume: {}".format(i, askvolume))
                     continue
                 t = ConvertToSimTime_us(self.start_time, self.time_ratio, self.day, self.running_time)
-                response = self.api.sendOrder(self.token_ub, instrument, t, "buy", askprice, 100)
-                # 刷新当前手上持股情况 map[股票][计划购入总价, 持股总数]
-                self.stocksBuy[instrument][0] += askprice * 100
-                self.stocksBuy[instrument][1] += 100
+                response = self.api.sendOrder(self.token_ub, instrument, t, "buy", askprice, totle)
                 return  # 买100支股就不再继续购买
             logger.info("### All Askvolume empty! stock: {}".format(instrument))   # 该股票剩余仓全空
 
+    # 随机买入
+    def randBuy(self):
+        # 随机买三次
+        for i in range(3):
+            buyInstrument = self.instruments[random.randint(0, self.stockNumber - 1)]  # 随机购买的股票名
+            self.buy(buyInstrument, 100)
+
+    # 初始随机买，不卖出
+    def initialBuy(self):
+        self.getAllStocksInfo()  # 获得上轮交易情况、本轮LOB。并存入历史列表中
+
+        # 获得当前用户信息
+        userInfoResponse = self.api.sendGetUserInfo(self.token_ub)
+        if userInfoResponse["status"] == "Success":
+            self.userInfoData.append(userInfoResponse["rows"])  # 存入本轮交易时，用户手上的持股信息
+            fund = userInfoResponse["remain_funds"]  # 手头资金
+            # 可用资金不足时，直接退出循环。此时无法购买任何股票
+            if fund < 500:
+                logger.debug("# fund not enough: {}".format(fund))
+                return
+            self.randBuy()
+            # 本次交易时我的29支股票持股信息
+            logger.warning("### Get User Stock Info: ")
+            for stock in userInfoResponse["rows"]:
+                logger.warning("### stock: {}".format(stock))
 
     # 卖股票(全抛)，参数： 股票名、股票总量
     def sell(self, instrument: str, totle: int):
@@ -215,17 +240,34 @@ class BotsDemoClass(BotsClass):
     # 删掉所有买操作的外挂单 todo: 其实可以记录什么时候所有买单全删完了，然后直接return就行
     def deleteAllBuyOrder(self):
         response = self.api.sendGetActiveOrder(self.token_ub)
-        for i in range(29):
-            for activeOrder in response["instruments"][i]["active_orders"]:
-                if activeOrder["direction"] == "buy":
-                    order_index = activeOrder["order_index"]
-                    t = ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time)
-                    cancleResponse = self.api.sendCancel(self.token_ub, self.instruments[i], t, order_index)
-        logger.info("### Delete all buy orders!")
+        if response["status"] == "Success":
+            for i in range(29):
+                for activeOrder in response["instruments"][i]["active_orders"]:
+                    if activeOrder["direction"] == "buy":
+                        order_index = activeOrder["order_index"]
+                        t = ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time)
+                        cancleResponse = self.api.sendCancel(self.token_ub, self.instruments[i], t, order_index)
+            logger.info("### Delete all buy orders!")
 
     # 每个交易日开始前，交易策略的初始化
     def bod(self):
         logger.info("### Trade begin! Day: {}, running_days: {}".format(self.day, self.running_days))  # 今天日期、截止日
+        response = self.api.sendGetUserInfo(self.token_ub)  # 获取当前用户数据
+        if response["status"] == "Success":
+            # 打印本交易日开始前，我的所有股票收益情况
+            logger.info("Get allStocksTrade: {}".format(response["rows"]))
+            # 打印本交易日开始前，我的整体收益情况
+            ls = [["pnl: ", response["pnl"]],
+                  ["sharpe: ", response["sharpe"]],
+                  ["orders: ", response["orders"]],
+                  ["error_orders: ", response["error_orders"]],
+                  ["order_value: ", response["order_value"]],
+                  ["trade_value: ", response["trade_value"]],
+                  ["commision: ", response["commision"]],
+                  ["total_position: ", response["total_position"]],
+                  ["remain_funds: ", response["remain_funds"]]]
+            logger.info("Get totalTradeScore: {}".format(ls))
+
     # 交易策略的实现，可进行：查询、处理行情、下单、撤单等操作 (demo是随机买入某支股票的一手) todo: 后续需把buy、sell中的获取用户信息整合到一起
     def work(self):
         self.getAllStocksInfo()  # 获得上轮交易情况、本轮LOB
@@ -236,48 +278,51 @@ class BotsDemoClass(BotsClass):
             self.userInfoData.append(userInfoResponse["rows"])  # 存入本轮交易时，用户手上的持股信息
 
             fund = userInfoResponse["remain_funds"]  # 手头资金
-            # 随机买三次（加日志后知道，三次买期间LOB不变，所以整个work调用期间，LOB基本是固定的，除了以下四个参数：
-            #           买量 bidvolume，卖量 askvolume，成交量 trade_volume，成交额 trade_value。因为这四个参数受其他选手买卖影响）
-            for i in range(3):
-                # 可用资金不足时，直接退出循环。此时无法购买任何股票
-                if fund < 500:
-                    logger.debug("# fund not enough: {}".format(fund))
-                    break
-                buyInstrument = self.instruments[random.randint(0, len(self.instruments) - 1)]  # 随机购买的股票名
-                self.buy(buyInstrument)
-            # 实在不行随机全卖。调通先
+            # 读取近10次所有股票的涨跌情况
+            logger.warning("### Work Start !!! No buy!")  # 先不买
 
-            # 卖操作
+            # 随机选一个卖
+            sellStocks = []
             for stock in userInfoResponse["rows"]:
                 instrument = stock["instrument_name"]
                 share_holding = stock["share_holding"]
-                pnl = stock["pnl"]
-                position = stock["position"]
-                trade_value = stock["trade_value"]
-                # 只要收益高于 20% 就卖
-                if share_holding > 0 and position > 1.2 * trade_value:
-                    self.sell(instrument, share_holding)
-            logger.info("### Get User Stock Info: \n{}".format(userInfoResponse["rows"]))  # 本次交易时我的持股信息
+                # 只要收益高于 20% 就卖。这个收益基本不可能，20%太高了。
+                if share_holding > 0:
+                    sellStocks.append([instrument, share_holding])
+            # 持仓为空
+            if not sellStocks:
+                logger.warning("### Holding share empty!!!")
+                return
+            sellid = random.randint(0, len(sellStocks) - 1)
+            self.sell(sellStocks[sellid][0], sellStocks[sellid][1])
+
+            # 本次交易时我的29支股票持股信息
+            logger.warning("### Get User Stock Info: ")
+            for stock in userInfoResponse["rows"]:
+                logger.warning("### stock: {}".format(stock))
 
     # 每个交易日结束时会调用该函数，可用于每天交易结束时执行一些操作
     def eod(self):
         response = self.api.sendGetUserInfo(self.token_ub)  # 获取当前用户数据
-        # 打印本交易日我的所有股票收益情况
-        self.dayEndAllStocksTrade[self.day] = response["rows"]
-        logger.info("### Day end! Day: {}, running_days: {}, \nGet allStocksTrade: {}"
-                    .format(self.day, self.running_days, self.dayEndAllStocksTrade))
-        # 打印本交易日整体收益情况
-        ls = [["npl: ", response["pnl"]],
-              ["sharpe: ", response["sharpe"]],
-              ["npl: ", response["orders"]],
-              ["orders: ", response["error_orders"]],
-              ["order_value: ", response["order_value"]],
-              ["trade_value: ", response["trade_value"]],
-              ["commision: ", response["commision"]],
-              ["total_position: ", response["total_position"]],
-              ["remain_funds: ", response["remain_funds"]]]
-        self.totalTradeScore[self.day] = ls
-        logger.info("Get totalTradeScore: {}".format(ls))
+        if response["status"] == "Success":
+            # 打印本交易日我的所有股票收益情况
+            self.dayEndAllStocksTrade[self.day] = response["rows"]
+            logger.info("### Day end! Day: {}, running_days: {}, \nGet allStocksTrade: {}"
+                        .format(self.day, self.running_days, self.dayEndAllStocksTrade))
+            # 打印本交易日整体收益情况
+            ls = [["pnl: ", response["pnl"]],
+                  ["sharpe: ", response["sharpe"]],
+                  ["orders: ", response["orders"]],
+                  ["error_orders: ", response["error_orders"]],
+                  ["order_value: ", response["order_value"]],
+                  ["trade_value: ", response["trade_value"]],
+                  ["commision: ", response["commision"]],
+                  ["total_position: ", response["total_position"]],
+                  ["remain_funds: ", response["remain_funds"]]]
+            self.totalTradeScore[self.day] = ls
+            logger.info("Get totalTradeScore: {}".format(ls))
+        # 打印本交易日的历史LOB
+        logger.info("Get all LOB: {}".format(self.stocksLOB))
 
     # 在所有交易日结束后会调用，可用于赛后处理一些工作和分析
     def final(self):
@@ -353,7 +398,7 @@ class InterfaceClass:
     # response["lob"]["trade_volume"]       成交量
     # response["lob"]["trade_value"]        成交额
     def sendGetLimitOrderBook(self, token_ub, instrument):
-        logger.debug("GetLimitOrderBook: Instrument: {}".format(instrument))
+        # logger.debug("GetLimitOrderBook: Instrument: {}".format(instrument))
         url = self.domain_name + "/api/TradeAPI/GetLimitOrderBook"
         data = {
             "token_ub": token_ub,
@@ -421,7 +466,7 @@ class InterfaceClass:
     # response["trade_list"][i][“trade_volume"]:    成交量
     # response["trade_list"][i][“remain_volume"]:   剩余量
     def sendGetTrade(self, token_ub, instrument):
-        logger.debug("GetTrade: Instrment: {}".format(instrument))
+        # logger.debug("GetTrade: Instrment: {}".format(instrument))
         url = self.domain_name + "/api/TradeAPI/GetTrade"
         data = {
             "token_ub": token_ub,
@@ -451,7 +496,7 @@ class InterfaceClass:
 # 默认 时间比率为: 24h/25min
 bot = BotsDemoClass("UBIQ_TEAM106", "f7ugVlef0")  # 初始化：账号、密码
 bot.login()         # 登录
-bot.init()          # 初始化：获取 交易日信息 和 股票信息
+bot.init()          # 初始化：获取 交易日信息 和 股票信息。同时变量会被清空
 SimTimeLen = 14400  # 一个交易日共交易4小时，对应 4*60*60 = 14400s。即一天 24h 有效交易时间为 4h，即交易所(9:30-11:30,13:00-15:00)
 endWaitTime = 300   # 系统结算时间为 5分钟，对应 5*60 = 300s。是系统结算时间，不是交易日的 24h 时间
 # 算出要进行至少 14400 次交易，交易天数应需要 day 天
@@ -461,7 +506,8 @@ while True:
     else:
         bot.day += 1
 
-# 一共8个交易日，每次交易拿上一次交易结束以后的剩余资金交易。如果本交易日结束后仍持股，则会强平，直接以跌停价给全卖掉
+# 一共8个交易日，每次交易拿上一次交易结束以后的剩余资金交易。如果本交易日结束后仍持股，则会强平，直接以跌停价给全卖掉。
+# 每天资金会重置为100w，每天的交易都是隔离开的。所以下面while循环相当于重新启动交易
 while bot.day <= bot.running_days:
     # 这里使得时间大于-100即可，此时为交易开启前
     while True:
@@ -481,6 +527,10 @@ while bot.day <= bot.running_days:
     bot.bod()  # 每个交易日开始时，交易策略的初始化
 
     endTime = SimTimeLen + endWaitTime
+    logger.info("The Whole Time Interval is now: {}, endTime: {}".format(now, endTime))
+    workCnt = 0  # 当前work共运行了多少次
+    delBuyOrder = True  # 判断当前是否要清空了所有买外挂单，只清空一次，清空完立马变False
+    # s = [0, 14400 + 300]
     for s in range(now, endTime):
         # 保证当前时间大于等于s。1s内时间，用于进行 交易操作前 的参数初始化
         while True:
@@ -490,14 +540,22 @@ while bot.day <= bot.running_days:
                 break
         t = ConvertToSimTime_us(bot.start_time, bot.time_ratio, bot.day, bot.running_time)
         logger.info("Work Time: {}".format(t))
+        # 待修正，以及注意：
+        # 这里可以改成 s < 15，因为 s = [0, 14400 + 300]，这样前15次执行就是随机买。因为如果我中途断掉再运行，那么s会直接从now继续开始，
+        # 如果用workCnt，那么又会重新随机买15次.
+        # 前15次可以随机买，因为此时LOB历史数据还不足10条。一般是第5秒开始才能获取到LOB，此时一般够交易2次了。一次work结束大概30s
+        if workCnt < 15:
+            bot.initialBuy()
+            workCnt += 1
         # 当前系统时间大于 14400 - 90 时不再进行 work交易
-        if t < SimTimeLen - 90:
+        elif t < SimTimeLen - 90:
             bot.work()  # 执行交易策略
-        # 删掉所有买外挂单
-        if SimTimeLen - 90 < t < SimTimeLen - 60:
-            bot.deleteAllBuyOrder()
+            workCnt += 1
         # 最后 [14400 - 90, 14400 - 30] 不再买入，直接清仓全卖。[14400, 14400 + 300]为系统结算时间，不能交易。测试出全卖掉大概要30s
         if SimTimeLen - 90 < t < SimTimeLen - 30:
+            if delBuyOrder:
+                bot.deleteAllBuyOrder()  # 删掉所有买外挂单
+                delBuyOrder = False
             bot.sellAll()
             logger.info("# Last 1.5min sell all! t: {}, SimTimeLen: {}".format(t, SimTimeLen))
     bot.eod()  # 用于每天交易结束时执行一些操作
